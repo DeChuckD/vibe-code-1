@@ -1,176 +1,101 @@
 "use client";
 
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useState } from "react";
+import ReportView from "../components/Report";
+import type { Report } from "../types";
 
-type Note = {
-  id: string;
-  author: string;
-  text: string;
-  createdAt: string;
-};
-
-function formatWhen(iso: string) {
-  return new Intl.DateTimeFormat("en", {
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  }).format(new Date(iso));
-}
+const EXAMPLES = ["EGFR", "SFTPC", "NKX2-1", "KRAS"];
+const SYMBOL = /^[A-Za-z][A-Za-z0-9-]{0,14}$/;
 
 export default function HomePage() {
-  const [notes, setNotes] = useState<Note[]>([]);
-  const [author, setAuthor] = useState("");
-  const [text, setText] = useState("");
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [serverUp, setServerUp] = useState(false);
+  const [gene, setGene] = useState("EGFR");
+  const [report, setReport] = useState<Report | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
 
-  async function loadNotes() {
+  async function run(symbol: string) {
+    const next = symbol.trim().toUpperCase();
+    if (!SYMBOL.test(next)) {
+      setError("Use a gene symbol such as EGFR or SFTPC.");
+      return;
+    }
+    setGene(next);
+    setLoading(true);
+    setError(null);
     try {
-      const [notesRes, healthRes] = await Promise.all([
-        fetch("/api/notes", { cache: "no-store" }),
-        fetch("/api/health", { cache: "no-store" }),
-      ]);
-
-      if (!notesRes.ok) {
-        throw new Error("Could not load the board.");
+      const response = await fetch("/api/report", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ gene: next }),
+      });
+      const payload = (await response.json()) as Report & { error?: string };
+      if (!response.ok) {
+        throw new Error(payload.error ?? "The report could not be built.");
       }
-
-      const data = (await notesRes.json()) as { notes: Note[] };
-      setNotes(data.notes);
-      setServerUp(healthRes.ok);
-      setError(null);
-    } catch {
-      setServerUp(false);
-      setError("The API is not responding. The Node server should be on port 4000.");
+      setReport(payload);
+    } catch (err) {
+      setReport(null);
+      setError(err instanceof Error ? err.message : "The report could not be built.");
     } finally {
       setLoading(false);
     }
   }
 
-  useEffect(() => {
-    void loadNotes();
-  }, []);
-
-  async function onSubmit(event: FormEvent<HTMLFormElement>) {
+  function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    setSaving(true);
-    setError(null);
-
-    try {
-      const response = await fetch("/api/notes", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ author, text }),
-      });
-      const data = (await response.json()) as { note?: Note; error?: string };
-
-      if (!response.ok || !data.note) {
-        throw new Error(data.error ?? "Could not save that note.");
-      }
-
-      setNotes((current) => [data.note as Note, ...current]);
-      setText("");
-      setServerUp(true);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not save that note.");
-    } finally {
-      setSaving(false);
-    }
+    void run(gene);
   }
 
   return (
     <main className="page">
-      <header className="topbar">
+      <header className="mast">
         <div className="brand">
           <span className="mark" aria-hidden="true">
-            Fn
+            Al
           </span>
-          <span>Fieldnote</span>
+          <span>Alveus</span>
         </div>
-        <p className={serverUp ? "status up" : "status"}>
-          <span className="dot" aria-hidden="true" />
-          {serverUp ? "API connected" : "API offline"}
-        </p>
+        <p>Lung adenocarcinoma · public data</p>
       </header>
 
-      <section className="hero">
-        <div>
-          <p className="eyebrow">Next.js frontend · Node API</p>
-          <h1>A board for short notes.</h1>
-          <p className="lede">
-            This page is a Next.js app. The notes themselves live in a separate
-            Node server. Pin a line and it is stored in memory until that
-            server restarts.
-          </p>
-        </div>
-
-        <form className="composer" onSubmit={onSubmit}>
+      <section className="intro">
+        <p className="eyebrow">Spatial transcriptomics report</p>
+        <h1>Ask for a gene. Read the lesion, the normal lung, and the rest of the body.</h1>
+        <p className="lede">
+          Alveus looks up human spatial series for lung adenocarcinoma, then places that gene in
+          cell types from lesion and normal lung, in a normal-organ panel, and across TCGA tumors.
+        </p>
+        <form onSubmit={onSubmit}>
           <label>
-            Name
+            Gene symbol
             <input
-              name="author"
-              value={author}
-              maxLength={40}
-              autoComplete="nickname"
-              placeholder="Ada"
-              onChange={(event) => setAuthor(event.target.value)}
-              required
+              name="gene"
+              value={gene}
+              autoCapitalize="characters"
+              autoCorrect="off"
+              spellCheck={false}
+              maxLength={15}
+              onChange={(event) => setGene(event.target.value.toUpperCase())}
             />
           </label>
-          <label>
-            Note
-            <textarea
-              name="text"
-              value={text}
-              maxLength={280}
-              rows={4}
-              placeholder="Leave something short."
-              onChange={(event) => setText(event.target.value)}
-              required
-            />
-          </label>
-          <div className="composer-row">
-            <span>{280 - text.length} characters left</span>
-            <button type="submit" disabled={saving}>
-              {saving ? "Pinning…" : "Pin note"}
-            </button>
-          </div>
+          <button type="submit" disabled={loading}>
+            {loading ? "Gathering public data…" : "Build report"}
+          </button>
         </form>
-      </section>
-
-      <section className="board" aria-live="polite">
-        <div className="board-head">
-          <h2>On the board</h2>
-          <p>{loading ? "Loading" : `${notes.length} notes`}</p>
+        <div className="examples">
+          {EXAMPLES.map((example) => (
+            <button key={example} type="button" className="chip" onClick={() => void run(example)} disabled={loading}>
+              {example}
+            </button>
+          ))}
         </div>
-
         {error ? <p className="banner">{error}</p> : null}
-
         {loading ? (
-          <div className="stack">
-            <article className="card skeleton" />
-            <article className="card skeleton" />
-          </div>
-        ) : (
-          <div className="stack">
-            {notes.map((note, index) => (
-              <article className="card" key={note.id}>
-                <header>
-                  <strong>{note.author}</strong>
-                  <span className="meta">
-                    {index === 0 ? <span className="fresh">Newest</span> : null}
-                    <time dateTime={note.createdAt}>{formatWhen(note.createdAt)}</time>
-                  </span>
-                </header>
-                <p>{note.text}</p>
-              </article>
-            ))}
-          </div>
-        )}
+          <p className="note">Checking GEO, CELLxGENE, GTEx, and TCGA. The first search takes a few seconds.</p>
+        ) : null}
       </section>
+
+      {report ? <ReportView report={report} /> : null}
     </main>
   );
 }

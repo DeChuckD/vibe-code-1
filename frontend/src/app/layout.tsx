@@ -2,8 +2,8 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Fieldnote",
-  description: "A small shared board. Next.js on the front, a Node API behind it.",
+  title: "Alveus",
+  description: "Lung adenocarcinoma gene reports from public spatial, single-cell, GTEx, and TCGA data.",
 };
 
 export default function RootLayout({
